@@ -273,6 +273,25 @@ details.out summary{cursor:pointer;color:var(--muted);font-weight:600;padding:6p
 input,select,textarea{font-size:16px}
 @media (prefers-reduced-motion: reduce){.dot.run{animation:none}}
 
+
+/* relatório: em aberto em todas as obras */
+.segtop{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:4px}
+.segtop button{border:0;background:transparent;border-radius:7px;min-height:40px;font-weight:600;font-size:14px;color:var(--muted);transition:transform 120ms var(--ease)}
+.segtop button:active{transform:scale(.97)}
+.segtop button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.abgrupo{display:grid;gap:0;padding:0;overflow:hidden}
+.abhead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:14px;border-bottom:1px solid var(--line);background:var(--surface-2)}
+.abhead h3{font-size:22px;line-height:1.1}
+.abhead b{font-family:var(--display);font-size:24px;color:var(--accent-text);white-space:nowrap}
+.abrow{all:unset;box-sizing:border-box;cursor:pointer;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:start;padding:12px 14px;border-bottom:1px solid var(--line)}
+.abrow:last-child{border-bottom:0}
+.abrow:hover{background:var(--surface-2)}
+.abrow:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.abwho{display:grid;gap:2px;min-width:0}
+.abwho b{font-weight:600}
+.abwho span{font-size:13px;color:var(--muted)}
+.abwho .abdias{font-family:var(--mono);font-size:12px}
+.abval{font-weight:700;white-space:nowrap}
 </style>
 </head>
 <body>

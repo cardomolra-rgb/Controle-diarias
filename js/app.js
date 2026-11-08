@@ -176,8 +176,8 @@ document.addEventListener('visibilitychange', () => {
 let lastToday = today();
 
 /* ===================== consultas ===================== */
-const ui = { tab: 'chamada', obra: null, day: today(), form: null, confirm: null, open: null, newObra: false, err: '', per: 'semana', de: '', ate: '', copy: null, extra: null, parar: null, vale: null, vf: null, recibo: null, fechar: null, auth: 'entrar', authMsg: '', authErr: '', busy: false };
-const rememberUi = () => { lsSet(skey('ui'), { tab: ui.tab, obra: ui.obra }); };
+const ui = { tab: 'chamada', obra: null, day: today(), form: null, confirm: null, open: null, newObra: false, err: '', rel: 'periodo', per: 'semana', de: '', ate: '', copy: null, extra: null, parar: null, vale: null, vf: null, recibo: null, fechar: null, auth: 'entrar', authMsg: '', authErr: '', busy: false };
+const rememberUi = () => { lsSet(skey('ui'), { tab: ui.tab, obra: ui.obra, rel: ui.rel }); };
 const obras = () => [...L.obras.values()].filter(o => !o.apagado).sort((a, b) => (a.criado_em || '') < (b.criado_em || '') ? -1 : 1);
 const pessoas = (ativos = true) => [...L.pessoas.values()].filter(p => p.obra_id === ui.obra && (ativos ? p.ativo !== false : p.ativo === false)).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 const markOf = (d, pid) => { const r = L.presencas.get(pid + '|' + d); return r && r.tipo != null ? { v: r.tipo, d: r.diaria } : null; };
@@ -506,12 +506,71 @@ function textoResumo(R) {
   if (f && f.fim === R.ate) l.push('', `Semana fechada em ${hora(f.fechado_em)}.`);
   return l.join('\n');
 }
+function abertoGeral() {
+  const grupos = [];
+  for (const o of obras()) {
+    const ps = [...L.pessoas.values()].filter(p => p.obra_id === o.id);
+    const linhas = ps.map(p => ({ p, ...aberto(p) })).filter(a => a.bruto > 0 || a.tv > 0)
+      .sort((a, b) => b.valor - a.valor || a.p.nome.localeCompare(b.p.nome, 'pt-BR'));
+    if (!linhas.length) continue;
+    const total = linhas.reduce((s, a) => s + Math.max(0, a.valor), 0);
+    const dias = linhas.reduce((s, a) => s + a.dias, 0);
+    const desde = linhas.map(a => a.linhas.find(l => l.v > 0)?.d).filter(Boolean).sort()[0] || null;
+    grupos.push({ o, linhas, total, dias, desde });
+  }
+  grupos.sort((a, b) => b.total - a.total);
+  const total = grupos.reduce((s, g) => s + g.total, 0);
+  const dias = grupos.reduce((s, g) => s + g.dias, 0);
+  const pessoasN = grupos.reduce((s, g) => s + g.linhas.length, 0);
+  const desde = grupos.map(g => g.desde).filter(Boolean).sort()[0] || null;
+  return { grupos, total, dias, pessoasN, desde };
+}
+const diasTexto = a => a.linhas.filter(l => l.v > 0).map(l => `${DOW[parse(l.d).getDay()]} ${ddmm(l.d)}${l.v === 0.5 ? ' (meia)' : ''}`);
+function textoAberto(G) {
+  const l = ['*Diárias em aberto*', `Todas as obras · até ${dmy(today())}`, '', `Total a pagar: *${brl(G.total)}* (${nDias(G.dias)}, ${G.pessoasN} ${G.pessoasN === 1 ? 'pessoa' : 'pessoas'})`];
+  for (const g of G.grupos) {
+    l.push('', `*${g.o.nome}* · ${brl(g.total)}`);
+    g.linhas.forEach(a => {
+      l.push(`• ${a.p.nome} (${a.p.funcao}): ${nDias(a.dias)} = ${brl(a.valor)}${a.tv ? ` (já descontado vale de ${brl(a.tv)})` : ''}`);
+      const d = diasTexto(a); if (d.length) l.push(`   ${d.join(', ')}`);
+    });
+  }
+  return l.join('\n');
+}
+function vAbertoGeral() {
+  const G = abertoGeral();
+  const corpo = G.grupos.length ? `
+    <div class="card owedhead"><span class="eyebrow">Total em aberto · todas as obras</span><b class="num">${brl(G.total)}</b>
+      <span class="muted" style="font-size:14px">${nDias(G.dias)} · ${G.pessoasN} ${G.pessoasN === 1 ? 'pessoa' : 'pessoas'} · ${G.grupos.length} ${G.grupos.length === 1 ? 'obra' : 'obras'}${G.desde ? ` · mais antiga de ${ddmm(G.desde)}` : ''}</span></div>
+    ${G.grupos.map(g => `<section class="card abgrupo" aria-label="${esc(g.o.nome)}">
+      <div class="abhead"><div><h3>${esc(g.o.nome)}</h3><span class="muted" style="font-size:13px">${nDias(g.dias)}${g.desde ? ` desde ${ddmm(g.desde)}` : ''}</span></div><b class="num">${brl(g.total)}</b></div>
+      ${g.linhas.map(a => {
+        const d = diasTexto(a);
+        return `<button class="abrow" data-act="irpagar" data-o="${g.o.id}" data-p="${a.p.id}" data-k="ab-${a.p.id}" aria-label="Abrir ${esc(a.p.nome)} em A pagar">
+          <span class="abwho"><b>${esc(a.p.nome)}</b><span>${esc(a.p.funcao)} · ${nDias(a.dias)}${a.tv ? ` · vale ${brl(a.tv)}` : ''}</span>${d.length ? `<span class="abdias">${d.map(esc).join(' · ')}</span>` : ''}</span>
+          <span class="abval num" style="${a.valor < 0 ? 'color:var(--bad)' : ''}">${brl(a.valor)}</span>
+        </button>`;
+      }).join('')}
+    </section>`).join('')}
+    <p class="muted" style="margin:0;font-size:13px">Toque em uma pessoa para abrir o extrato dela em A pagar e registrar o pagamento.</p>
+    ${ui.copy != null ? `<div class="field"><label for="copybox">Selecione e copie o texto abaixo</label><textarea id="copybox" class="copybox" readonly>${esc(ui.copy)}</textarea></div>` : `<button class="btn btn-primary btn-block" data-act="copiar" data-what="aberto" data-k="copiar-aberto">Copiar lista para WhatsApp</button>`}`
+    : `<div class="card empty"><h2>Nada em aberto</h2><p>Todas as diárias marcadas já foram pagas, em todas as obras.</p></div>`;
+  return corpo;
+}
 function vRelatorio() {
+  const modos = `<div class="segtop" role="group" aria-label="Tipo de relatório"><button data-act="relmodo" data-m="periodo" data-k="rel-periodo" aria-pressed="${ui.rel !== 'aberto'}">Por período</button><button data-act="relmodo" data-m="aberto" data-k="rel-aberto" aria-pressed="${ui.rel === 'aberto'}">Em aberto (todas)</button></div>`;
+  if (ui.rel === 'aberto') return `<div class="${enter().trim()}" style="display:grid;gap:14px">
+    <div><div class="eyebrow">Relatório</div><h2 style="font-size:28px;line-height:1.05">Diárias em aberto</h2><span class="muted">Tudo que foi marcado e ainda não foi pago, em todas as obras.</span></div>
+    ${modos}${vAbertoGeral()}</div>`;
+  return vRelatorioPeriodo(modos);
+}
+function vRelatorioPeriodo(modos) {
   const R = relatorio(), maxD = Math.max(1, ...R.dias.map(x => x.mo + x.ex));
   const pers = [['semana', 'Esta semana'], ['semanaant', 'Semana passada'], ['mes', 'Este mês'], ['mesant', 'Mês passado'], ['outro', 'Escolher datas']];
   const tem = R.linhas.length || R.extras.length || R.parados.length;
   return `<div class="${enter().trim()}" style="display:grid;gap:14px">
     <div><div class="eyebrow">Relatório</div><h2 style="font-size:28px;line-height:1.05">${R.nome}</h2><span class="muted mono">${dmy(R.de)} a ${dmy(R.ate)}</span></div>
+    ${modos}
     <div class="periods" role="group" aria-label="Período">${pers.map(([k, l]) => `<button data-act="per" data-per="${k}" data-k="per-${k}" aria-pressed="${ui.per === k}">${l}</button>`).join('')}</div>
     ${ui.per === 'outro' ? `<div class="range"><div class="field"><label for="r-de">De</label><input type="date" id="r-de" value="${R.de}" max="${today()}"></div><div class="field"><label for="r-ate">Até</label><input type="date" id="r-ate" value="${R.ate}" max="${today()}"></div></div>` : ''}
     ${statusSemanaRel(R)}
@@ -643,10 +702,13 @@ document.addEventListener('click', async e => {
   else if (a === 'asksair') { ui.confirm = 'sair'; }
   else if (a === 'cancelsair') { ui.confirm = null; }
   else if (a === 'sair') { await sair(); return; }
+  else if (a === 'relmodo') { ui.rel = b.dataset.m; ui.copy = null; rememberUi(); }
+  else if (a === 'irpagar') { ui.obra = b.dataset.o; ui.tab = 'pagar'; resetForms(); ui.open = pid; ENTER = true; rememberUi(); window.scrollTo(0, 0); }
   else if (a === 'per') { ui.per = b.dataset.per; ui.copy = null; if (ui.per === 'outro' && !ui.de) { const r = periodo(); ui.de = r[0]; ui.ate = r[1]; } }
   else if (a === 'copiar') {
-    const rec = b.dataset.what === 'recibo', txt = rec ? reciboTexto(L.pagamentos.get(ui.recibo)) : textoResumo(relatorio());
-    try { await navigator.clipboard.writeText(txt); toast(rec ? 'Recibo copiado. Cole no WhatsApp.' : 'Resumo copiado. Cole no WhatsApp.'); }
+    const w = b.dataset.what, rec = w === 'recibo';
+    const txt = rec ? reciboTexto(L.pagamentos.get(ui.recibo)) : w === 'aberto' ? textoAberto(abertoGeral()) : textoResumo(relatorio());
+    try { await navigator.clipboard.writeText(txt); toast(rec ? 'Recibo copiado. Cole no WhatsApp.' : w === 'aberto' ? 'Lista copiada. Cole no WhatsApp.' : 'Resumo copiado. Cole no WhatsApp.'); }
     catch (err) { ui.copy = txt; render(); const ta = document.getElementById('copybox'); ta?.focus(); ta?.select(); return; }
   }
   else if (a === 'addextra') { if (fechada(ui.day)) return; ui.extra = { cat: 'Almoço', desc: '', valor: '' }; ui.err = ''; render(); document.getElementById('x-valor')?.focus(); return; }
@@ -719,7 +781,7 @@ async function startUser(u) {
   USER = { id: u.id, email: u.email };
   lsSet('diarias:lastUser', USER);
   loadLocal();
-  const saved = lsGet(skey('ui'), {}); if (saved.tab) ui.tab = saved.tab; if (saved.obra) ui.obra = saved.obra;
+  const saved = lsGet(skey('ui'), {}); if (saved.tab) ui.tab = saved.tab; if (saved.rel) ui.rel = saved.rel; if (saved.obra) ui.obra = saved.obra;
   NEEDS_LOGIN = false; ENTER = true;
   const primeiraVez = !Object.keys(lastPull).length && !L.obras.size;
   MODE = primeiraVez && navigator.onLine ? 'loading' : 'app';
