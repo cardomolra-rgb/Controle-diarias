@@ -176,9 +176,10 @@ document.addEventListener('visibilitychange', () => {
 let lastToday = today();
 
 /* ===================== consultas ===================== */
-const ui = { tab: 'chamada', obra: null, day: today(), form: null, confirm: null, open: null, newObra: false, err: '', rel: 'periodo', per: 'semana', de: '', ate: '', copy: null, extra: null, parar: null, vale: null, vf: null, recibo: null, fechar: null, auth: 'entrar', authMsg: '', authErr: '', busy: false };
+const ui = { obraEdit: null, tab: 'chamada', obra: null, day: today(), form: null, confirm: null, open: null, newObra: false, err: '', rel: 'periodo', per: 'semana', de: '', ate: '', copy: null, extra: null, parar: null, vale: null, vf: null, recibo: null, fechar: null, auth: 'entrar', authMsg: '', authErr: '', busy: false };
 const rememberUi = () => { lsSet(skey('ui'), { tab: ui.tab, obra: ui.obra, rel: ui.rel }); };
-const obras = () => [...L.obras.values()].filter(o => !o.apagado).sort((a, b) => (a.criado_em || '') < (b.criado_em || '') ? -1 : 1);
+const obras = () => [...L.obras.values()].filter(o => !o.apagado).sort((a, b) => (a.criado_em || '') < (b.criado_em || '') ? 1 : -1);
+const obrasApagadas = () => [...L.obras.values()].filter(o => o.apagado).sort((a, b) => (a.criado_em || '') < (b.criado_em || '') ? 1 : -1);
 const pessoas = (ativos = true) => [...L.pessoas.values()].filter(p => p.obra_id === ui.obra && (ativos ? p.ativo !== false : p.ativo === false)).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 const markOf = (d, pid) => { const r = L.presencas.get(pid + '|' + d); return r && r.tipo != null ? { v: r.tipo, d: r.diaria } : null; };
 const paradoDe = d => L.dias_obra.get(ui.obra + '|' + d)?.parado_motivo || null;
@@ -252,7 +253,7 @@ function render() {
   if (MODE === 'login' || NEEDS_LOGIN) { renderLogin(); restore(prevFocus); return; }
   ensureObra();
   const os = obras();
-  $top.innerHTML = `<span class="brand"><i></i>Diárias</span>${os.length ? `<select class="sel" id="obra-sel" data-k="obra" aria-label="Obra">${os.map(o => `<option value="${o.id}"${o.id === ui.obra ? ' selected' : ''}>${esc(o.nome)}</option>`).join('')}</select><button class="iconbtn" data-act="newobra" data-k="newobra" aria-label="Nova obra">+</button>` : ''}`;
+  $top.innerHTML = `<span class="brand"><i></i>Diárias</span>${os.length ? `<select class="sel" id="obra-sel" data-k="obra" aria-label="Obra">${os.map(o => `<option value="${o.id}"${o.id === ui.obra ? ' selected' : ''}>${esc(o.nome)}</option>`).join('')}</select><button class="iconbtn" data-act="editobra" data-k="editobra-top" aria-label="Editar ou apagar esta obra"><svg viewBox="0 0 24 24" class="ic" aria-hidden="true"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"/><path d="M14 6l4 4"/></svg></button><button class="iconbtn" data-act="newobra" data-k="newobra" aria-label="Nova obra">+</button>` : ''}`;
   let html = '';
   if (DEMO) html += `<div class="banner">Modo demonstração: os dados ficam só neste aparelho e não vão para o servidor.</div>`;
   if (MODE === 'loading') html += `<div class="card empty"><h2>Baixando seus dados…</h2><p>Só na primeira vez. Depois o app abre na hora, mesmo sem internet.</p></div>`;
@@ -407,15 +408,41 @@ function formPessoa() {
     ${edit ? (ui.confirm === 'rm' ? `<div class="confirm"><span>Tirar <b>${esc(f.nome)}</b> desta obra? As diárias e pagamentos já registrados continuam salvos.</span><div class="row end"><button class="btn btn-ghost" data-act="cancelrm" data-k="cancelrm">Manter</button><button class="btn btn-danger" data-act="rm" data-k="rm">Tirar da obra</button></div></div>` : `<button class="link" data-act="askrm" data-k="askrm" style="color:var(--bad);justify-self:start">Tirar desta obra</button>`) : ''}
   </section>`;
 }
+function vObraCard() {
+  const o = L.obras.get(ui.obra); if (!o) return '';
+  if (ui.obraEdit) return `<section class="card form enter" aria-label="Editar obra">
+    <h2 style="font-size:24px">Editar obra</h2>
+    <div class="field"><label for="o-nome">Nome da obra</label><input id="o-nome" data-k="o-nome" value="${esc(ui.obraEdit.nome)}" maxlength="80" autocomplete="off"></div>
+    ${ui.err ? `<div class="err" role="alert">${esc(ui.err)}</div>` : ''}
+    <div class="row end"><button class="btn btn-ghost" data-act="cancelobraedit" data-k="cancelobraedit">Cancelar</button><button class="btn btn-primary" data-act="saveobraedit" data-k="saveobraedit">Salvar</button></div>
+  </section>`;
+  if (ui.confirm === 'rmobra') {
+    const ps = [...L.pessoas.values()].filter(p => p.obra_id === o.id);
+    const marc = [...L.presencas.values()].filter(x => x.obra_id === o.id && x.tipo != null).length;
+    const emAberto = ps.reduce((s, p) => s + Math.max(0, aberto(p).valor), 0);
+    return `<section class="card form fecharbox enter" aria-label="Apagar obra">
+      <h2 style="font-size:24px">Apagar a obra ${esc(o.nome)}?</h2>
+      <div class="rlines"><div><span>Pessoas na equipe</span><span class="num">${ps.length}</span></div><div><span>Diárias marcadas</span><span class="num">${marc}</span></div><div><b>Em aberto (sem pagamento)</b><b class="num">${brl(emAberto)}</b></div></div>
+      ${emAberto > 0 ? `<div class="banner">Esta obra ainda tem ${brl(emAberto)} em diárias não pagas. Depois de apagada, elas somem do relatório "Em aberto".</div>` : ''}
+      <p style="margin:0">A obra sai da lista e dos relatórios. Nada é perdido: dá para restaurar depois em <b>Obras apagadas</b>, no fim desta tela.</p>
+      <div class="row end"><button class="btn btn-ghost" data-act="cancelrmobra" data-k="cancelrmobra">Manter</button><button class="btn btn-danger" data-act="rmobra" data-k="rmobra">Apagar obra</button></div>
+    </section>`;
+  }
+  return `<section class="card obracard" aria-label="Obra"><div><div class="eyebrow">Obra</div><h2 style="font-size:24px;line-height:1.1">${esc(o.nome)}</h2></div>
+    <div class="row"><button class="btn" data-act="editobra" data-k="editobra">Editar nome</button><button class="btn btn-ghost" data-act="askrmobra" data-k="askrmobra" style="color:var(--bad)">Apagar obra</button></div></section>`;
+}
 function vEquipe() {
   const ps = pessoas(), fora = pessoas(false), total = ps.reduce((s, p) => s + (+p.diaria || 0), 0);
+  const apagadas = obrasApagadas();
   return `<div class="${enter().trim()}" style="display:grid;gap:14px">
+    ${vObraCard()}
     <div class="sectitle"><div><div class="eyebrow">Equipe da obra</div><h2>${ps.length} ${ps.length === 1 ? 'pessoa' : 'pessoas'}</h2></div>${!ui.form ? `<button class="btn btn-primary" data-act="addpessoa" data-k="addp">Adicionar</button>` : ''}</div>
     ${ui.form ? formPessoa() : ''}
     ${ps.length ? `<div class="list">${ps.map(p => `<div class="item"><div class="av" aria-hidden="true">${esc(initials(p.nome))}</div><div class="who"><b>${esc(p.nome)}</b><span>${esc(p.funcao)}</span></div><span class="num" style="font-weight:600">${brl(p.diaria)}</span><button class="link" data-act="editpessoa" data-p="${p.id}" data-k="ed-${p.id}" aria-label="Editar ${esc(p.nome)}">Editar</button></div>`).join('')}</div>
       <p class="muted" style="margin:0;font-size:14px">Dia com todos presentes custa <b class="num" style="color:var(--ink)">${brl(total)}</b>.</p>`
       : (ui.form ? '' : `<div class="card empty"><h2>Equipe vazia</h2><p>Adicione cada pessoa com a função e o valor da diária.</p></div>`)}
     ${fora.length ? `<details class="out"><summary>Fora desta obra (${fora.length})</summary><div class="list">${fora.map(p => `<div class="item"><div class="who"><b>${esc(p.nome)}</b><span>${esc(p.funcao)} · ${brl(p.diaria)}</span></div><button class="link" data-act="reativar" data-p="${p.id}" data-k="re-${p.id}">Trazer de volta</button></div>`).join('')}</div></details>` : ''}
+    ${apagadas.length ? `<details class="out"><summary>Obras apagadas (${apagadas.length})</summary><div class="list">${apagadas.map(o => `<div class="item"><div class="who"><b>${esc(o.nome)}</b><span>Apagada · dados guardados</span></div><button class="link" data-act="restobra" data-x="${o.id}" data-k="rest-${o.id}">Restaurar</button></div>`).join('')}</div></details>` : ''}
     ${DEMO ? '' : `<section class="card account" aria-label="Conta"><div class="eyebrow">Conta</div>
       <div class="rlines"><div><span>Entrou como</span><b>${esc(USER?.email || '')}</b></div><div><span>Última sincronização</span><span>${sync.last ? hora(sync.last) : (outbox.length ? 'pendente' : '—')}</span></div><div><span>Alterações para enviar</span><span class="num">${outbox.length}</span></div></div>
       ${ui.confirm === 'sair' ? `<div class="confirm"><span>${outbox.length ? `Ainda há ${outbox.length} ${outbox.length === 1 ? 'alteração' : 'alterações'} sem enviar. Conecte-se à internet antes de sair, ou elas serão perdidas.` : 'Sair da conta neste celular? Seus dados continuam salvos no servidor.'}</span><div class="row end"><button class="btn btn-ghost" data-act="cancelsair" data-k="cancelsair">Cancelar</button>${outbox.length ? '' : '<button class="btn btn-danger" data-act="sair" data-k="sair">Sair</button>'}</div></div>` : `<button class="btn" data-act="asksair" data-k="asksair" style="justify-self:start">Sair da conta</button>`}
@@ -603,7 +630,7 @@ const val = id => document.getElementById(id)?.value ?? '';
 function readForm() { ui.form.nome = val('p-nome'); ui.form.funcao = val('p-funcao'); ui.form.diaria = val('p-diaria'); }
 function readExtra() { if (!ui.extra) return; if (document.getElementById('x-desc')) ui.extra.desc = val('x-desc'); if (document.getElementById('x-valor')) ui.extra.valor = val('x-valor'); }
 function readParar() { if (ui.parar && document.getElementById('p-outro')) ui.parar.outro = val('p-outro'); }
-function resetForms() { ui.extra = null; ui.parar = null; ui.vale = null; ui.vf = null; ui.recibo = null; ui.fechar = null; ui.form = null; ui.confirm = null; ui.err = ''; ui.copy = null; }
+function resetForms() { ui.obraEdit = null; ui.extra = null; ui.parar = null; ui.vale = null; ui.vf = null; ui.recibo = null; ui.fechar = null; ui.form = null; ui.confirm = null; ui.err = ''; ui.copy = null; }
 const marcar = (pid, v) => { const p = L.pessoas.get(pid); put('presencas', { obra_id: ui.obra, pessoa_id: pid, data: ui.day, tipo: v, diaria: v == null ? (L.presencas.get(pid + '|' + ui.day)?.diaria ?? p.diaria) : p.diaria }); };
 
 async function acaoAuth() {
@@ -698,6 +725,21 @@ document.addEventListener('click', async e => {
   else if (a === 'askrm') { readForm(); ui.confirm = 'rm'; }
   else if (a === 'cancelrm') { readForm(); ui.confirm = null; }
   else if (a === 'rm') { const id = ui.form.id, n = ui.form.nome; put('pessoas', { id, ativo: false }); ui.form = null; ui.confirm = null; toast(`${n.split(' ')[0]} saiu desta obra.`); return commit(); }
+  else if (a === 'editobra') { const o = L.obras.get(ui.obra); if (!o) return; ui.tab = 'equipe'; ui.newObra = false; resetForms(); ui.obraEdit = { nome: o.nome }; rememberUi(); window.scrollTo(0, 0); render(); document.getElementById('o-nome')?.focus(); return; }
+  else if (a === 'cancelobraedit') { ui.obraEdit = null; ui.err = ''; }
+  else if (a === 'saveobraedit') {
+    const nome = val('o-nome').trim(); ui.obraEdit.nome = nome;
+    if (!nome) { ui.err = 'Dê um nome para a obra.'; render(); document.getElementById('o-nome')?.focus(); return; }
+    put('obras', { id: ui.obra, nome }); ui.obraEdit = null; ui.err = ''; toast('Nome da obra salvo.'); return commit();
+  }
+  else if (a === 'askrmobra') { ui.confirm = 'rmobra'; ui.obraEdit = null; ui.form = null; window.scrollTo(0, 0); }
+  else if (a === 'cancelrmobra') { ui.confirm = null; }
+  else if (a === 'rmobra') {
+    const o = L.obras.get(ui.obra); if (!o) return;
+    put('obras', { id: o.id, apagado: true }); ui.confirm = null; ui.obra = null; ensureObra(); rememberUi();
+    toast(`Obra ${o.nome} apagada. Dá para restaurar em Obras apagadas.`); ENTER = true; return commit();
+  }
+  else if (a === 'restobra') { const o = L.obras.get(b.dataset.x); if (!o) return; put('obras', { id: o.id, apagado: false }); ui.obra = o.id; rememberUi(); toast(`Obra ${o.nome} restaurada.`); ENTER = true; return commit(); }
   else if (a === 'reativar') { put('pessoas', { id: pid, ativo: true }); toast('Pessoa de volta na equipe.'); return commit(); }
   else if (a === 'asksair') { ui.confirm = 'sair'; }
   else if (a === 'cancelsair') { ui.confirm = null; }
@@ -772,6 +814,7 @@ document.addEventListener('keydown', e => {
   else if (['x-desc', 'x-valor'].includes(id)) go('saveextra');
   else if (['v-valor', 'v-obs'].includes(id)) go('savevale');
   else if (id === 'obra-nome') go('saveobra');
+  else if (id === 'o-nome') go('saveobraedit');
   else if (['p-nome', 'p-funcao', 'p-diaria'].includes(id)) go('savepessoa');
 });
 

@@ -1,6 +1,6 @@
 /* Service worker: guarda o app no celular para abrir sem internet.
    Ao publicar uma nova versão, aumente VERSAO para o celular baixar os arquivos novos. */
-const VERSAO = 'diarias-v2';
+const VERSAO = 'diarias-v3';
 const APP = ['./', 'index.html', 'js/app.js', 'js/config.js', 'js/supabase.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png'];
 const FONTES = 'diarias-fontes';
